@@ -244,15 +244,15 @@ All gateway activity is logged as structured JSON to stderr. Configure the level
 ```
 ┌─────────────────────────────────┐
 │         AI Tool / Agent         │
-│   (Claude Code, Cursor, etc.)  │
+│   (Claude Code, Cursor, etc.)   │
 └────────────┬────────────────────┘
              │ MCP (stdio)
              ▼
 ┌─────────────────────────────────┐
 │            Mavryn               │
-│  ┌───────┐ ┌──────┐ ┌───────┐  │
-│  │Router │ │Policy│ │ Audit │  │
-│  └───┬───┘ └──┬───┘ └───┬───┘  │
+│  ┌───────┐ ┌──────┐ ┌───────┐   │
+│  │Router │ │Policy│ │ Audit │   │
+│  └───┬───┘ └──┬───┘ └───┬───┘   │
 │      └────────┼──────────┘      │
 │           ┌───┴───┐             │
 │           │ Proxy │             │
