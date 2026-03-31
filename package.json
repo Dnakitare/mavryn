@@ -1,0 +1,62 @@
+{
+  "name": "mavryn",
+  "version": "0.1.0",
+  "description": "The MCP control plane — one server to route them all",
+  "type": "module",
+  "bin": {
+    "mavryn": "./dist/cli/index.js"
+  },
+  "main": "./dist/server/mavryn-server.js",
+  "types": "./dist/server/mavryn-server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server/mavryn-server.d.ts",
+      "default": "./dist/server/mavryn-server.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "start": "node dist/cli/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "gateway",
+    "proxy",
+    "tool-discovery",
+    "agent",
+    "ai",
+    "routing",
+    "control-plane"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dnakitare/mavryn.git"
+  },
+  "homepage": "https://github.com/dnakitare/mavryn#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "commander": "^13.1.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

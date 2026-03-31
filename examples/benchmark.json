@@ -1,0 +1,42 @@
+[
+  {
+    "prompt": "read the contents of a file",
+    "expectedTools": ["filesystem__read_file", "filesystem__read_text_file"]
+  },
+  {
+    "prompt": "list all files in a directory",
+    "expectedTools": ["filesystem__list_directory", "filesystem__list_directory_with_sizes"]
+  },
+  {
+    "prompt": "create a new directory",
+    "expectedTools": ["filesystem__create_directory"]
+  },
+  {
+    "prompt": "search for files matching a pattern",
+    "expectedTools": ["filesystem__search_files"]
+  },
+  {
+    "prompt": "edit a file and replace some text",
+    "expectedTools": ["filesystem__edit_file"]
+  },
+  {
+    "prompt": "move or rename a file",
+    "expectedTools": ["filesystem__move_file"]
+  },
+  {
+    "prompt": "get file metadata like size and permissions",
+    "expectedTools": ["filesystem__get_file_info"]
+  },
+  {
+    "prompt": "write content to a new file",
+    "expectedTools": ["filesystem__write_file"]
+  },
+  {
+    "prompt": "show the directory tree structure",
+    "expectedTools": ["filesystem__directory_tree"]
+  },
+  {
+    "prompt": "what directories can I access",
+    "expectedTools": ["filesystem__list_allowed_directories"]
+  }
+]
