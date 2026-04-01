@@ -1,4 +1,5 @@
-import { appendFileSync, writeFileSync } from "fs";
+import { appendFileSync } from "fs";
+import { redactValue } from "../security/redact.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -34,7 +35,7 @@ export class Logger {
 
     let line: string;
     try {
-      line = JSON.stringify(entry);
+      line = JSON.stringify(redactValue(entry));
     } catch {
       line = JSON.stringify({
         timestamp: entry.timestamp,

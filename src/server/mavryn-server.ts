@@ -13,6 +13,7 @@ import { HealthChecker } from "../proxy/health.js";
 import { ToolRouter } from "./router.js";
 import { Logger } from "../logging/logger.js";
 import { AuditLog } from "../logging/audit.js";
+import { redactString, enforceContentLimit } from "../security/redact.js";
 
 export class MavrynServer {
   private config: MavrynConfig;
@@ -341,7 +342,8 @@ export class MavrynServer {
       // Validate upstream response shape before passing through
       return this.validateToolResult(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = redactString(rawMessage);
       const latencyMs = Date.now() - start;
 
       this.logger.toolCall(nsTool.upstream, nsTool.namespacedName, {
@@ -393,10 +395,22 @@ export class MavrynServer {
         typeof (item as Record<string, unknown>).type === "string",
     );
 
+    // Enforce content size limits
+    const limitedContent = enforceContentLimit(
+      validContent.length > 0 ? validContent : [{ type: "text", text: "(empty response)" }],
+    );
+
+    // Redact any secrets that may have leaked through upstream responses
+    const sanitizedContent = limitedContent.map((item) => {
+      const obj = item as Record<string, unknown>;
+      if (obj.type === "text" && typeof obj.text === "string") {
+        return { ...obj, text: redactString(obj.text) };
+      }
+      return item;
+    });
+
     return {
-      content: validContent.length > 0
-        ? validContent
-        : [{ type: "text", text: "(empty response)" }],
+      content: sanitizedContent as CallToolResult["content"],
       ...(typeof obj.isError === "boolean" && { isError: obj.isError }),
     };
   }

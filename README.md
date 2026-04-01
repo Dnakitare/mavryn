@@ -266,6 +266,64 @@ All gateway activity is logged as structured JSON to stderr. Configure the level
    └──────┘ └──────┘ └──────┘
 ```
 
+## Security
+
+Mavryn sits between your AI tools and your MCP servers. Security is not optional.
+
+### Secret redaction
+
+All logs, audit entries, and error messages are scrubbed before being written. Mavryn detects and redacts:
+
+- API keys and tokens (GitHub PATs, AWS keys, Bearer tokens, JWTs)
+- Passwords and secrets in key-value pairs
+- Private keys (RSA, EC, DSA, OpenSSH)
+- Connection strings with embedded credentials
+- Known secret field names (`password`, `token`, `api_key`, `authorization`, etc.)
+
+Upstream responses are also scanned — if an MCP server leaks a secret in its output, Mavryn redacts it before passing it to the client.
+
+### Environment variable references
+
+Never put secrets in `mavryn.config.json`. Use env var references instead:
+
+```json
+{
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
+```
+
+Mavryn resolves `$VAR` and `${VAR}` syntax at runtime from the process environment. The secret never touches disk.
+
+### Upstream response limits
+
+Upstream responses are capped at 10MB per tool call. If a server returns a payload exceeding this limit, the response is truncated with a warning. This prevents memory exhaustion from malicious or misconfigured upstreams.
+
+### Upstream tool name validation
+
+Tool names from upstream servers are validated against a safe character set (`a-zA-Z0-9_-.:`). Names containing the namespace separator (`__`) are rejected to prevent namespace injection attacks. Tool counts per server are capped (default 500, configurable via `maxTools`).
+
+### Tool call timeouts
+
+Every upstream tool call has a timeout (default 30s, configurable per-server and globally). A hung or malicious upstream cannot block the gateway indefinitely.
+
+### Threat model
+
+Mavryn treats upstream MCP servers as **untrusted**. Specifically:
+
+- **Tool names** are validated and sanitized before exposure
+- **Tool responses** are shape-validated, size-limited, and secret-redacted
+- **Error messages** from upstreams are redacted before reaching the client
+- **Transport credentials** are resolved from environment variables, not stored in config
+- **Policy enforcement** happens before execution, not after
+
+Mavryn does **not** currently protect against:
+
+- A compromised upstream that returns subtly wrong (but valid) data
+- Side-channel attacks through timing or tool selection patterns
+- Exfiltration through tool input arguments if the LLM is manipulated (prompt injection)
+
 ## License
 
 MIT

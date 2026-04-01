@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import type { Logger } from "./logger.js";
+import { redactValue } from "../security/redact.js";
 
 export interface AuditEntry {
   timestamp: string;
@@ -44,7 +45,7 @@ export class AuditLog {
 
     let line: string;
     try {
-      line = JSON.stringify(entry) + "\n";
+      line = JSON.stringify(redactValue(entry)) + "\n";
     } catch {
       return;
     }

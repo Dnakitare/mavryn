@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { UpstreamServerConfig, TransportConfig } from "../config.js";
 import type { Logger } from "../logging/logger.js";
+import { resolveTransportEnv } from "../security/redact.js";
 
 // Only allow safe characters in tool names from upstream servers.
 // This prevents namespace injection (e.g., tool named "other__admin_delete").
@@ -165,7 +166,7 @@ export class UpstreamConnection {
         return new StdioClientTransport({
           command: config.command,
           args: config.args,
-          env: config.env as Record<string, string> | undefined,
+          env: resolveTransportEnv(config.env as Record<string, string> | undefined),
         });
       case "sse":
         return new SSEClientTransport(new URL(config.url), {
