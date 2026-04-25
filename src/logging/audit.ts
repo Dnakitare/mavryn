@@ -1,64 +1,89 @@
-import { appendFileSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
 import path from "path";
 import type { Logger } from "./logger.js";
-import { redactValue } from "../security/redact.js";
+import { redactString, redactValue } from "../security/redact.js";
+import { SqliteAuditStore } from "../audit/store/index.js";
 
-export interface AuditEntry {
-  timestamp: string;
-  event: "tool_call" | "tool_denied" | "tool_error" | "upstream_connect" | "upstream_disconnect";
-  upstream?: string;
-  tool?: string;
-  namespacedTool?: string;
-  result?: "success" | "error" | "denied";
-  latencyMs?: number;
-  error?: string;
-  policyReason?: string;
-}
-
+/**
+ * Audit adapter — preserves the toolCall/toolDenied API surface used by
+ * MavrynServer and routes to the hash-chained SQLite store. Tool-call rows
+ * are tamper-evident; integrity is verifiable via `mavryn audit verify`.
+ *
+ * Errors during write never crash the server. On the first failure we log
+ * once and disable further writes to avoid log spam.
+ */
 export class AuditLog {
-  private filePath: string;
+  private store: SqliteAuditStore | null = null;
+  private dbPath: string;
   private enabled: boolean;
-  private initialized = false;
-  private logger: Logger;
   private writeable = true;
+  private initialized = false;
+  private sessionId: string;
+  private logger: Logger;
 
-  constructor(enabled: boolean, filePath: string, logger: Logger) {
+  constructor(enabled: boolean, dbPath: string, logger: Logger, sessionId?: string) {
     this.enabled = enabled;
-    this.filePath = filePath;
+    this.dbPath = dbPath;
     this.logger = logger;
+    this.sessionId = sessionId ?? crypto.randomUUID();
   }
 
-  private ensureDir(): void {
-    if (this.initialized) return;
-    const dir = path.dirname(this.filePath);
-    try {
-      mkdirSync(dir, { recursive: true });
-    } catch {
-      // Directory may already exist
-    }
-    this.initialized = true;
-  }
-
-  write(entry: AuditEntry): void {
-    if (!this.enabled || !this.writeable) return;
-    this.ensureDir();
-
-    let line: string;
-    try {
-      line = JSON.stringify(redactValue(entry)) + "\n";
-    } catch {
-      return;
-    }
+  private ensureStore(): SqliteAuditStore | null {
+    if (!this.enabled || !this.writeable) return null;
+    if (this.initialized) return this.store;
 
     try {
-      appendFileSync(this.filePath, line);
+      mkdirSync(path.dirname(this.dbPath), { recursive: true });
+      this.store = new SqliteAuditStore(this.dbPath);
+      this.initialized = true;
+      return this.store;
     } catch (err) {
-      // Log the failure once, then disable to avoid spam
-      this.logger.error("audit_write_failed", {
-        file: this.filePath,
+      this.logger.error("audit_open_failed", {
+        path: this.dbPath,
         error: err instanceof Error ? err.message : String(err),
       });
       this.writeable = false;
+      this.initialized = true;
+      return null;
+    }
+  }
+
+  private writeAppend(params: {
+    serverName: string;
+    toolName: string;
+    toolArguments: Record<string, unknown>;
+    policyDecision: "allow" | "deny";
+    policyReason?: string;
+    resultStatus?: "success" | "error" | "blocked";
+    resultSummary?: string;
+    resultLatencyMs?: number;
+  }): void {
+    const store = this.ensureStore();
+    if (!store) return;
+
+    try {
+      store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        sessionId: this.sessionId,
+        serverName: params.serverName,
+        toolName: params.toolName,
+        toolArguments: redactValue(params.toolArguments) as Record<string, unknown>,
+        policyDecision: params.policyDecision,
+        policyReason: params.policyReason,
+        policiesEvaluated: [],
+        resultStatus: params.resultStatus,
+        resultSummary: params.resultSummary ? redactString(params.resultSummary) : undefined,
+        resultLatencyMs: params.resultLatencyMs,
+      });
+    } catch (err) {
+      if (this.writeable) {
+        this.logger.error("audit_write_failed", {
+          path: this.dbPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        this.writeable = false;
+      }
     }
   }
 
@@ -66,19 +91,19 @@ export class AuditLog {
     upstream: string;
     tool: string;
     namespacedTool: string;
+    args: Record<string, unknown>;
     success: boolean;
     latencyMs: number;
     error?: string;
   }): void {
-    this.write({
-      timestamp: new Date().toISOString(),
-      event: data.success ? "tool_call" : "tool_error",
-      upstream: data.upstream,
-      tool: data.tool,
-      namespacedTool: data.namespacedTool,
-      result: data.success ? "success" : "error",
-      latencyMs: data.latencyMs,
-      error: data.error,
+    this.writeAppend({
+      serverName: data.upstream,
+      toolName: data.tool,
+      toolArguments: data.args,
+      policyDecision: "allow",
+      resultStatus: data.success ? "success" : "error",
+      resultSummary: data.error,
+      resultLatencyMs: data.latencyMs,
     });
   }
 
@@ -86,16 +111,22 @@ export class AuditLog {
     upstream: string;
     tool: string;
     namespacedTool: string;
+    args: Record<string, unknown>;
     reason: string;
   }): void {
-    this.write({
-      timestamp: new Date().toISOString(),
-      event: "tool_denied",
-      upstream: data.upstream,
-      tool: data.tool,
-      namespacedTool: data.namespacedTool,
-      result: "denied",
+    this.writeAppend({
+      serverName: data.upstream,
+      toolName: data.tool,
+      toolArguments: data.args,
+      policyDecision: "deny",
       policyReason: data.reason,
+      resultStatus: "blocked",
     });
+  }
+
+  close(): void {
+    this.store?.close();
+    this.store = null;
+    this.initialized = false;
   }
 }

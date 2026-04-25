@@ -70,7 +70,7 @@ const MavrynConfigSchema = z.object({
   healthCheck: HealthCheckSchema.default({}),
   audit: z.object({
     enabled: z.boolean().default(false),
-    file: z.string().default(".mavryn/audit.jsonl"),
+    file: z.string().default(".mavryn/audit.db"),
   }).default({}),
   log: z.object({
     level: z.enum(["debug", "info", "warn", "error"]).default("info"),

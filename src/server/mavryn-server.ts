@@ -166,6 +166,7 @@ export class MavrynServer {
             upstream: nsTool.upstream,
             tool: nsTool.originalName,
             namespacedTool: nsTool.namespacedName,
+            args: args ?? {},
             reason: policy.reason ?? "denied by policy",
           });
           return {
@@ -192,11 +193,6 @@ export class MavrynServer {
         const conn = new UpstreamConnection(serverConfig, this.logger);
         await conn.connect();
         this.upstreams.set(serverConfig.name, conn);
-        this.audit.write({
-          timestamp: new Date().toISOString(),
-          event: "upstream_connect",
-          upstream: serverConfig.name,
-        });
       }),
     );
 
@@ -335,6 +331,7 @@ export class MavrynServer {
         upstream: nsTool.upstream,
         tool: nsTool.originalName,
         namespacedTool: nsTool.namespacedName,
+        args,
         success: true,
         latencyMs,
       });
@@ -355,6 +352,7 @@ export class MavrynServer {
         upstream: nsTool.upstream,
         tool: nsTool.originalName,
         namespacedTool: nsTool.namespacedName,
+        args,
         success: false,
         latencyMs,
         error: message,
@@ -421,6 +419,7 @@ export class MavrynServer {
       await conn.disconnect().catch(() => {});
     }
     await this.server.close();
+    this.audit.close();
     this.logger.info("mavryn_stopped");
   }
 }

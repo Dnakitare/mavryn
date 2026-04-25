@@ -1,6 +1,6 @@
 {
   "name": "mavryn",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "The MCP control plane — one server to route them all",
   "type": "module",
   "bin": {
@@ -27,6 +27,7 @@
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
     "start": "node dist/cli/index.js",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -51,12 +52,16 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.10.0",
+    "canonicalize": "^3.0.0",
     "commander": "^13.1.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.3",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }
