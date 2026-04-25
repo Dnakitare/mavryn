@@ -61,7 +61,7 @@ export class SqliteAuditStore implements AuditStore {
           assistant_message TEXT,
           system_prompt_hash TEXT,
           meta            TEXT,
-          prev_hash       TEXT,
+          prev_hash       TEXT UNIQUE,
           event_hash      TEXT NOT NULL UNIQUE,
           created_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -152,8 +152,10 @@ export class SqliteAuditStore implements AuditStore {
       "SELECT event_hash FROM events ORDER BY seq DESC LIMIT 1",
     );
 
-    // Run inside a transaction so getLatestHash + insert is atomic
-    const result = this.db.transaction(() => {
+    // BEGIN IMMEDIATE acquires the write lock at transaction start, so the
+    // SELECT for prevHash and the INSERT can't be interleaved by another
+    // process. Without this the chain can fork under concurrent writers.
+    const trx = this.db.transaction(() => {
       const row = latestHashStmt.get() as any;
       const prevHash: string | null = row?.event_hash ?? null;
 
@@ -235,9 +237,9 @@ export class SqliteAuditStore implements AuditStore {
 
       event.seq = Number(runResult.lastInsertRowid);
       return event;
-    })();
+    });
 
-    return result;
+    return trx.immediate();
   }
 
   query(filter: EventQuery): AuditEvent[] {

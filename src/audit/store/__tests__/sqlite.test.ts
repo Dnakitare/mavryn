@@ -638,6 +638,52 @@ describe("SqliteAuditStore", () => {
       expect(tamperedHash).not.toBe(event.eventHash);
     });
 
+    it("rejects an event whose prevHash duplicates an existing row (multi-process forking guard)", () => {
+      const e1 = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: "2026-04-25T00:00:01.000Z",
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "read_file",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+      });
+
+      const e2 = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: "2026-04-25T00:00:02.000Z",
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "read_file",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+      });
+
+      expect(e2.prevHash).toBe(e1.eventHash);
+
+      // Simulate a forking writer that appends a row referencing e1 as its
+      // predecessor — what would happen if a second process raced past the
+      // SELECT/INSERT serialization. The UNIQUE(prev_hash) constraint must
+      // reject it.
+      const fakeForkedHash = "deadbeef".repeat(8);
+      expect(() =>
+        store.append({
+          id: crypto.randomUUID(),
+          timestamp: "2026-04-25T00:00:03.000Z",
+          sessionId: "sess-1",
+          serverName: "fs",
+          toolName: "read_file",
+          toolArguments: {},
+          policyDecision: "allow",
+          policiesEvaluated: [],
+          prevHash: e1.eventHash, // duplicate of e2.prevHash
+          eventHash: fakeForkedHash,
+        }),
+      ).toThrow(/UNIQUE/i);
+    });
+
     it("verifies cleanly when two events share a timestamp (regression: chain must order by seq, not timestamp)", () => {
       const sharedTimestamp = "2026-04-25T12:00:00.000Z";
 
