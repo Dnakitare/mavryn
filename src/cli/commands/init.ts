@@ -20,4 +20,9 @@ export const initCommand = new Command("init")
     console.log("\nNext steps:");
     console.log("  mavryn add <name> --stdio <command>   Add an MCP server");
     console.log("  mavryn serve                          Start the gateway");
+    console.log("\nOptional — operator-tamper defense for the audit chain (v0.5+):");
+    console.log("  1. Generate a key:  openssl rand -base64 32");
+    console.log("  2. Export it:       export MAVRYN_AUDIT_MAC_KEY='<base64>'");
+    console.log("  3. Add to config:   audit.macKey = { source: \"env\", ref: \"MAVRYN_AUDIT_MAC_KEY\" }");
+    console.log("  See README → \"Operator-tamper defense\" for the full rationale.");
   });

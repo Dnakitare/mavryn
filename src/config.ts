@@ -74,6 +74,10 @@ const MavrynConfigSchema = z.object({
     file: z.string().default(".mavryn/audit.db"),
     failClosed: z.boolean().default(false).describe("If true, deny tool calls when the audit log can't be written (compliance mode). If false (default), continue serving with audit silently disabled — surface in logs only."),
     agentId: z.string().optional().describe("Identifier recorded as agent_id on every audit row. Convention: a stable string that names this agent or its role (e.g. 'claude-code', 'security_reviewer', 'support-bot-v2'). Use sourceTag for fleet/deployment grouping; use agentId for the agent's identity itself."),
+    macKey: z.object({
+      source: z.enum(["env", "file"]).describe("Where to read the HMAC key. 'env' = read base64 key from named env var; 'file' = read base64 key from file path."),
+      ref: z.string().min(1).describe("Env var name (for source=env) or file path (for source=file). The referenced value must be base64-encoded and decode to a 32-byte key."),
+    }).optional().describe("Optional. When set, every new audit row gets an HMAC-SHA256 over its canonical payload, defending against operators with DB write access. Old rows (pre-v0.5 or pre-config) keep NULL event_mac. `mavryn audit verify` reads this same config to check MACs. KMS/Vault/HSM sources are reserved for v0.6+."),
   }).default({}),
   log: z.object({
     level: z.enum(["debug", "info", "warn", "error"]).default("info"),

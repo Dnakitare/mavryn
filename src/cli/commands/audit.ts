@@ -4,7 +4,9 @@ import path from "path";
 import Database from "better-sqlite3";
 import { loadConfig, resolveRelativeTo, resolveConfigPath } from "../../config.js";
 import { SqliteAuditStore } from "../../audit/store/index.js";
-import { computeEventHash } from "../../audit/hash.js";
+import { computeEventHash, computeEventMac, safeHexEqual } from "../../audit/hash.js";
+import { loadMacKeyFromConfig, MacKeyLoadError } from "../../audit/keyLoader.js";
+import { formatVerifyTerminal } from "../../audit/verifyOutcome.js";
 import type { AuditEvent } from "../../audit/types.js";
 import type { EventQuery } from "../../audit/store/store.js";
 
@@ -21,7 +23,10 @@ async function resolveAuditDbPath(): Promise<string | null> {
 }
 
 export const auditCommand = new Command("audit")
-  .description("View the audit trail of tool calls")
+  .description(
+    "Inspect, verify, export, and back up the hash-chained audit trail. " +
+      "Subcommands: verify (walk chain + MACs), export (JSONL/CSV for SIEM), backup (online DB copy).",
+  )
   .option("--tail <n>", "Show last N entries", "20")
   .option("--json", "Output raw JSON lines (full row, including hashes)")
   .option("--tool <name>", "Filter by tool name")
@@ -139,6 +144,10 @@ const CSV_COLUMNS = [
   "meta",
   "prev_hash",
   "event_hash",
+  "event_mac",
+  "anchor_hash",
+  "anchor_seq",
+  "anchor_source",
 ] as const;
 
 function eventToCsvRow(ev: AuditEvent): string {
@@ -167,6 +176,10 @@ function eventToCsvRow(ev: AuditEvent): string {
     ev.meta,
     ev.prevHash,
     ev.eventHash,
+    ev.eventMac,
+    ev.anchorHash,
+    ev.anchorSeq,
+    ev.anchorSource,
   ]
     .map(csvCell)
     .join(",");
@@ -248,7 +261,12 @@ auditCommand
 
 auditCommand
   .command("verify")
-  .description("Verify the audit chain has not been tampered with. Exits 0 if intact, 1 if broken.")
+  .description(
+    "Verify the audit chain. Without audit.macKey: detects accidental corruption, partial " +
+      "writes, and tampering by attackers who don't have write access to the audit DB. With " +
+      "audit.macKey configured: also detects content tampering by an attacker with DB write " +
+      "access but no key access (HMAC defense). Exits 0 if intact, 1 if broken or suspect.",
+  )
   .action(async () => {
     const dbPath = await resolveAuditDbPath();
     if (!dbPath) {
@@ -256,16 +274,35 @@ auditCommand
       return;
     }
 
+    const config = await loadConfig();
+    const configDir = path.dirname(resolveConfigPath());
+
+    let macKey: Buffer | null = null;
+    try {
+      macKey = loadMacKeyFromConfig(config.audit, configDir);
+    } catch (err) {
+      if (err instanceof MacKeyLoadError) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
     const store = new SqliteAuditStore(dbPath);
+    const firstMacSeq = store.getFirstMacSeq();
+
     let prevHash: string | null = null;
     let count = 0;
+    let macVerified = 0;
+    let macSkippedNoKey = 0;
+    let hashOnlyRows = 0;
 
     try {
       // Stream rows lazily via iterateAllEvents — memory stays constant
       // regardless of DB size. Important once the audit grows past a few
       // hundred thousand rows.
       for (const ev of store.iterateAllEvents()) {
-        const expectedHash = computeEventHash({
+        const hashableEvent = {
           id: ev.id,
           timestamp: ev.timestamp,
           sessionId: ev.sessionId,
@@ -286,8 +323,9 @@ auditCommand
           meta: ev.meta,
           redactionsApplied: ev.redactionsApplied,
           prevHash,
-        });
+        };
 
+        const expectedHash = computeEventHash(hashableEvent);
         const ref = `seq=${ev.seq ?? "?"} id=${ev.id}`;
 
         if (expectedHash !== ev.eventHash) {
@@ -306,6 +344,50 @@ auditCommand
           process.exit(1);
         }
 
+        // Monotonicity: once a MAC'd row has been written under a key (per
+        // audit_meta.first_mac_seq), every subsequent row MUST be MAC'd. A
+        // NULL event_mac on a row at seq >= first_mac_seq means either the
+        // row was tampered and its MAC stripped to launder it, or the MAC
+        // column was wiped wholesale.
+        if (
+          macKey &&
+          firstMacSeq !== null &&
+          ev.seq !== undefined &&
+          ev.seq >= firstMacSeq &&
+          !ev.eventMac
+        ) {
+          console.error(`✗ MAC monotonicity violated at ${ref} (timestamp=${ev.timestamp})`);
+          console.error(`  This row has no event_mac, but audit_meta.first_mac_seq=${firstMacSeq}.`);
+          console.error(`  Every row at seq >= first_mac_seq must be MAC'd. NULL here means`);
+          console.error(`  the MAC was stripped (likely to launder a content tamper) or the`);
+          console.error(`  column was wiped. This is active tampering, not a legacy state.`);
+          process.exit(1);
+        }
+
+        if (ev.eventMac) {
+          if (macKey) {
+            const expectedMac = computeEventMac(hashableEvent, macKey);
+            if (!safeHexEqual(expectedMac, ev.eventMac)) {
+              console.error(`✗ MAC verification failed at ${ref} (timestamp=${ev.timestamp})`);
+              console.error(`  expected mac: ${expectedMac}`);
+              console.error(`  stored mac:   ${ev.eventMac}`);
+              if (macVerified === 0) {
+                console.error(`  This is the first MAC checked. Likely cause: wrong audit.macKey configured`);
+                console.error(`  (or the key was rotated — pre-rotation MACs are unverifiable under a new key).`);
+              } else {
+                console.error(`  ${macVerified} earlier MACs passed under this key, so the key is correct.`);
+                console.error(`  This row was modified by someone without audit.macKey.`);
+              }
+              process.exit(1);
+            }
+            macVerified++;
+          } else {
+            macSkippedNoKey++;
+          }
+        } else {
+          hashOnlyRows++;
+        }
+
         prevHash = ev.eventHash;
         count++;
       }
@@ -313,10 +395,18 @@ auditCommand
       store.close();
     }
 
-    if (count === 0) {
-      console.log("No audit entries to verify.");
-      return;
+    const outcome = formatVerifyTerminal({
+      count,
+      macKeyConfigured: macKey !== null,
+      macVerified,
+      hashOnlyRows,
+      macSkippedNoKey,
+      firstMacSeq,
+    });
+    for (const line of outcome.lines) {
+      console.log(line);
     }
-
-    console.log(`✓ ${count} events verified — chain intact`);
+    if (outcome.exitCode !== 0) {
+      process.exit(outcome.exitCode);
+    }
   });

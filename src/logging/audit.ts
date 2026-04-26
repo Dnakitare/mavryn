@@ -20,6 +20,7 @@ export class AuditLog {
   private initialized = false;
   private sessionId: string;
   private agentId: string | undefined;
+  private macKey: Buffer | null;
   private logger: Logger;
 
   constructor(
@@ -28,12 +29,14 @@ export class AuditLog {
     logger: Logger,
     sessionId?: string,
     agentId?: string,
+    macKey?: Buffer | null,
   ) {
     this.enabled = enabled;
     this.dbPath = dbPath;
     this.logger = logger;
     this.sessionId = sessionId ?? crypto.randomUUID();
     this.agentId = agentId;
+    this.macKey = macKey ?? null;
   }
 
   private ensureStore(): SqliteAuditStore | null {
@@ -42,7 +45,7 @@ export class AuditLog {
 
     try {
       mkdirSync(path.dirname(this.dbPath), { recursive: true });
-      this.store = new SqliteAuditStore(this.dbPath);
+      this.store = new SqliteAuditStore(this.dbPath, { macKey: this.macKey });
       this.initialized = true;
       return this.store;
     } catch (err) {

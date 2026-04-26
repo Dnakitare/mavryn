@@ -35,4 +35,19 @@ export interface AuditEvent {
   redactionsApplied?: boolean;
   prevHash: string | null;
   eventHash: string;
+  /**
+   * HMAC-SHA256 over the same canonical payload as eventHash, keyed by
+   * audit.macKey. NULL on rows written before v0.5 or by a v0.5+ instance
+   * with no macKey configured. When set, defends against an attacker with
+   * DB write access (who can recompute eventHash but not eventMac).
+   */
+  eventMac?: string;
+  /**
+   * Reserved for v0.6 external anchoring. anchorHash = external commitment
+   * value, anchorSeq = row's position within the anchor batch, anchorSource
+   * = name of the medium ("s3-object-lock", "sigsum", etc.). All NULL in v0.5.
+   */
+  anchorHash?: string;
+  anchorSeq?: number;
+  anchorSource?: string;
 }

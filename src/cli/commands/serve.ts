@@ -1,6 +1,8 @@
 import { Command } from "commander";
-import { loadConfig } from "../../config.js";
+import path from "path";
+import { loadConfig, resolveConfigPath } from "../../config.js";
 import { MavrynServer } from "../../server/mavryn-server.js";
+import { loadMacKeyFromConfig, MacKeyLoadError } from "../../audit/keyLoader.js";
 
 export const serveCommand = new Command("serve")
   .description("Start the Mavryn MCP gateway server")
@@ -18,7 +20,23 @@ export const serveCommand = new Command("serve")
       process.exit(1);
     }
 
-    const server = new MavrynServer(config);
+    // Resolve audit.macKey before constructing the server. If it's configured
+    // but unloadable (env var unset, file missing, wrong length), fail loudly
+    // here — silent fallback would let MAC writes silently no-op, which is
+    // worse than not starting.
+    let macKey: Buffer | null = null;
+    try {
+      const configDir = path.dirname(resolveConfigPath());
+      macKey = loadMacKeyFromConfig(config.audit, configDir);
+    } catch (err) {
+      if (err instanceof MacKeyLoadError) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    const server = new MavrynServer(config, macKey);
 
     let shuttingDown = false;
     const shutdown = async () => {

@@ -27,7 +27,7 @@ export class MavrynServer {
   private healthChecker: HealthChecker | null = null;
   private rebuilding = false;
 
-  constructor(config: MavrynConfig) {
+  constructor(config: MavrynConfig, macKey?: Buffer | null) {
     this.config = config;
     this.logger = new Logger(config.log.level, config.log.file);
     this.audit = new AuditLog(
@@ -36,6 +36,7 @@ export class MavrynServer {
       this.logger,
       undefined,
       config.audit.agentId,
+      macKey ?? null,
     );
     this.router = new ToolRouter();
     this.server = new Server(
