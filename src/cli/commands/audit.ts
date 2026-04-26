@@ -94,6 +94,7 @@ export const auditCommand = new Command("audit")
       if (typeof event.resultLatencyMs === "number") extras.push(`${event.resultLatencyMs}ms`);
       if (event.policyReason) extras.push(event.policyReason);
       if (event.resultSummary) extras.push(event.resultSummary);
+      if (event.redactionsApplied) extras.push("redacted");
 
       const extra = extras.length > 0 ? ` (${extras.join(" | ")})` : "";
       console.log(`  [${time}] ${verdict} ${namespaced}${extra}`);
@@ -283,6 +284,7 @@ auditCommand
           assistantMessage: ev.assistantMessage,
           systemPromptHash: ev.systemPromptHash,
           meta: ev.meta,
+          redactionsApplied: ev.redactionsApplied,
           prevHash,
         });
 

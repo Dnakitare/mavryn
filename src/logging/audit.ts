@@ -1,7 +1,7 @@
 import { mkdirSync } from "fs";
 import path from "path";
 import type { Logger } from "./logger.js";
-import { redactString, redactValue } from "../security/redact.js";
+import { redactStringTracked, redactValueTracked } from "../security/redact.js";
 import { SqliteAuditStore } from "../audit/store/index.js";
 
 /**
@@ -89,6 +89,12 @@ export class AuditLog {
     const store = this.ensureStore();
     if (!store) return;
 
+    const redactedArgs = redactValueTracked(params.toolArguments);
+    const redactedSummary = params.resultSummary
+      ? redactStringTracked(params.resultSummary)
+      : null;
+    const redactionsApplied = redactedArgs.redacted || (redactedSummary?.redacted ?? false);
+
     try {
       store.appendAtomic({
         id: crypto.randomUUID(),
@@ -97,13 +103,14 @@ export class AuditLog {
         agentId: this.agentId,
         serverName: params.serverName,
         toolName: params.toolName,
-        toolArguments: redactValue(params.toolArguments) as Record<string, unknown>,
+        toolArguments: redactedArgs.value as Record<string, unknown>,
         policyDecision: params.policyDecision,
         policyReason: params.policyReason,
         policiesEvaluated: params.policiesEvaluated ?? [],
         resultStatus: params.resultStatus,
-        resultSummary: params.resultSummary ? redactString(params.resultSummary) : undefined,
+        resultSummary: redactedSummary?.value,
         resultLatencyMs: params.resultLatencyMs,
+        redactionsApplied,
       });
     } catch (err) {
       if (this.writeable) {

@@ -38,6 +38,7 @@ export interface AppendEventParams {
   assistantMessage?: string;
   systemPromptHash?: string;
   meta?: Record<string, unknown>;
+  redactionsApplied?: boolean;
 }
 
 export interface AuditStore {

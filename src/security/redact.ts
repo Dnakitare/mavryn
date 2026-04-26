@@ -80,6 +80,58 @@ export function redactValue(value: unknown, seen = new WeakSet<object>()): unkno
   return result;
 }
 
+/**
+ * Redact-and-report variants: same scrubbing as redactString / redactValue,
+ * but also report whether any redaction actually fired. Audit rows use the
+ * boolean to set `redactions_applied` so DSAR-style queries can identify
+ * rows where original content was scrubbed.
+ */
+export function redactStringTracked(input: string): { value: string; redacted: boolean } {
+  const result = redactString(input);
+  return { value: result, redacted: result !== input };
+}
+
+export function redactValueTracked(value: unknown): { value: unknown; redacted: boolean } {
+  const tracker = { redacted: false };
+  const result = redactValueWithTracker(value, tracker, new WeakSet<object>());
+  return { value: result, redacted: tracker.redacted };
+}
+
+function redactValueWithTracker(
+  value: unknown,
+  tracker: { redacted: boolean },
+  seen: WeakSet<object>,
+): unknown {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === "string") {
+    const replaced = redactString(value);
+    if (replaced !== value) tracker.redacted = true;
+    return replaced;
+  }
+
+  if (typeof value !== "object") return value;
+
+  const obj = value as object;
+  if (seen.has(obj)) return "[circular]";
+  seen.add(obj);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValueWithTracker(item, tracker, seen));
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (isSecretFieldName(key)) {
+      tracker.redacted = true;
+      result[key] = "[REDACTED]";
+    } else {
+      result[key] = redactValueWithTracker(val, tracker, seen);
+    }
+  }
+  return result;
+}
+
 const SECRET_FIELD_NAMES = new Set([
   "password", "passwd", "secret", "token", "api_key", "apikey",
   "api_secret", "apisecret", "access_token", "accesstoken",

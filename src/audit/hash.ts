@@ -20,6 +20,7 @@ export interface HashableEvent {
   assistantMessage?: string;
   systemPromptHash?: string;
   meta?: Record<string, unknown>;
+  redactionsApplied?: boolean;
   prevHash: string | null;
 }
 
@@ -54,6 +55,7 @@ export function computeEventHash(event: HashableEvent): string {
     event.assistantMessage ?? null,
     event.systemPromptHash ?? null,
     event.meta ?? null,
+    event.redactionsApplied ?? false,
     event.prevHash,
   ]);
   if (payload === undefined) {

@@ -557,6 +557,35 @@ describe("SqliteAuditStore", () => {
       expect(tamperedHash).not.toBe(event.eventHash);
     });
 
+    it("redactionsApplied is included in the hash — flipping it invalidates verification", () => {
+      const event = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "read_file",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+        redactionsApplied: true,
+      });
+
+      const tamperedHash = computeEventHash({
+        id: event.id,
+        timestamp: event.timestamp,
+        sessionId: event.sessionId,
+        serverName: event.serverName,
+        toolName: event.toolName,
+        toolArguments: event.toolArguments,
+        policyDecision: event.policyDecision,
+        policiesEvaluated: event.policiesEvaluated,
+        redactionsApplied: false, // flipped — hides that data was scrubbed
+        prevHash: event.prevHash,
+      });
+
+      expect(tamperedHash).not.toBe(event.eventHash);
+    });
+
     it("filters by turnId via query()", () => {
       const turnA = "turn-aaa";
       const turnB = "turn-bbb";

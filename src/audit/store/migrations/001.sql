@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS events (
   assistant_message TEXT,
   system_prompt_hash TEXT,
   meta            TEXT,
+  redactions_applied INTEGER NOT NULL DEFAULT 0,
   prev_hash       TEXT UNIQUE,
   event_hash      TEXT NOT NULL UNIQUE,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))

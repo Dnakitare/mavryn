@@ -31,6 +31,8 @@ export interface AuditEvent {
   systemPromptHash?: string;
   /** Free-form structured metadata passed via MCP `_meta`. Catch-all for SDK or client-side context. */
   meta?: Record<string, unknown>;
+  /** True if any of toolArguments / resultSummary / error had secrets scrubbed before storage. */
+  redactionsApplied?: boolean;
   prevHash: string | null;
   eventHash: string;
 }

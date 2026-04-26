@@ -61,6 +61,7 @@ export class SqliteAuditStore implements AuditStore {
           assistant_message TEXT,
           system_prompt_hash TEXT,
           meta            TEXT,
+          redactions_applied INTEGER NOT NULL DEFAULT 0,
           prev_hash       TEXT UNIQUE,
           event_hash      TEXT NOT NULL UNIQUE,
           created_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -88,6 +89,7 @@ export class SqliteAuditStore implements AuditStore {
         result_status, result_summary, result_latency_ms,
         user_id, source_tag, prompt_context,
         turn_id, assistant_message, system_prompt_hash, meta,
+        redactions_applied,
         prev_hash, event_hash
       ) VALUES (
         @id, @timestamp, @sessionId, @serverName, @agentId,
@@ -96,6 +98,7 @@ export class SqliteAuditStore implements AuditStore {
         @resultStatus, @resultSummary, @resultLatencyMs,
         @userId, @sourceTag, @promptContext,
         @turnId, @assistantMessage, @systemPromptHash, @meta,
+        @redactionsApplied,
         @prevHash, @eventHash
       )
     `);
@@ -122,6 +125,7 @@ export class SqliteAuditStore implements AuditStore {
       assistantMessage: event.assistantMessage ?? null,
       systemPromptHash: event.systemPromptHash ?? null,
       meta: event.meta ? JSON.stringify(event.meta) : null,
+      redactionsApplied: event.redactionsApplied ? 1 : 0,
       prevHash: event.prevHash,
       eventHash: event.eventHash,
     });
@@ -136,6 +140,7 @@ export class SqliteAuditStore implements AuditStore {
         result_status, result_summary, result_latency_ms,
         user_id, source_tag, prompt_context,
         turn_id, assistant_message, system_prompt_hash, meta,
+        redactions_applied,
         prev_hash, event_hash
       ) VALUES (
         @id, @timestamp, @sessionId, @serverName, @agentId,
@@ -144,6 +149,7 @@ export class SqliteAuditStore implements AuditStore {
         @resultStatus, @resultSummary, @resultLatencyMs,
         @userId, @sourceTag, @promptContext,
         @turnId, @assistantMessage, @systemPromptHash, @meta,
+        @redactionsApplied,
         @prevHash, @eventHash
       )
     `);
@@ -178,6 +184,7 @@ export class SqliteAuditStore implements AuditStore {
         assistantMessage: params.assistantMessage,
         systemPromptHash: params.systemPromptHash,
         meta: params.meta,
+        redactionsApplied: params.redactionsApplied,
         prevHash,
       };
 
@@ -205,6 +212,7 @@ export class SqliteAuditStore implements AuditStore {
         assistantMessage: params.assistantMessage,
         systemPromptHash: params.systemPromptHash,
         meta: params.meta,
+        redactionsApplied: params.redactionsApplied,
         prevHash,
         eventHash,
       };
@@ -231,6 +239,7 @@ export class SqliteAuditStore implements AuditStore {
         assistantMessage: event.assistantMessage ?? null,
         systemPromptHash: event.systemPromptHash ?? null,
         meta: event.meta ? JSON.stringify(event.meta) : null,
+        redactionsApplied: event.redactionsApplied ? 1 : 0,
         prevHash: event.prevHash,
         eventHash: event.eventHash,
       });
@@ -361,6 +370,7 @@ export class SqliteAuditStore implements AuditStore {
       assistantMessage: row.assistant_message ?? undefined,
       systemPromptHash: row.system_prompt_hash ?? undefined,
       meta: row.meta ? JSON.parse(row.meta) : undefined,
+      redactionsApplied: row.redactions_applied === 1,
       prevHash: row.prev_hash,
       eventHash: row.event_hash,
     };

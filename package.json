@@ -1,6 +1,6 @@
 {
   "name": "mavryn",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The MCP control plane — one server to route them all",
   "type": "module",
   "bin": {

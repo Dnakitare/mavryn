@@ -94,6 +94,53 @@ describe("AuditLog adapter integration", () => {
     }
   });
 
+  it("flags redactionsApplied=true when secrets were scrubbed (DSAR truthfulness)", () => {
+    const audit = new AuditLog(true, dbPath, makeNoopLogger(), "redact-flag-session");
+
+    // Row 1: contains a GitHub PAT — redactionsApplied should be true
+    audit.toolCall({
+      upstream: "github",
+      tool: "auth",
+      namespacedTool: "github__auth",
+      args: { token: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" },
+      success: true,
+      latencyMs: 10,
+    });
+
+    // Row 2: contains no secrets — redactionsApplied should be false
+    audit.toolCall({
+      upstream: "fs",
+      tool: "read_file",
+      namespacedTool: "fs__read_file",
+      args: { path: "/etc/hosts" },
+      success: true,
+      latencyMs: 5,
+    });
+
+    // Row 3: secret hides in resultSummary (error message)
+    audit.toolCall({
+      upstream: "fs",
+      tool: "read_file",
+      namespacedTool: "fs__read_file",
+      args: { path: "/etc/hosts" },
+      success: false,
+      latencyMs: 5,
+      error: "auth failed: ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    });
+
+    audit.close();
+
+    const store = new SqliteAuditStore(dbPath);
+    try {
+      const events = store.getAllEvents();
+      expect(events[0].redactionsApplied).toBe(true);
+      expect(events[1].redactionsApplied).toBe(false);
+      expect(events[2].redactionsApplied).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
   it("redacts secrets in tool arguments before storing + hashing", () => {
     const audit = new AuditLog(true, dbPath, makeNoopLogger(), "redact-session");
 
