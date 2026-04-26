@@ -30,7 +30,13 @@ export class MavrynServer {
   constructor(config: MavrynConfig) {
     this.config = config;
     this.logger = new Logger(config.log.level, config.log.file);
-    this.audit = new AuditLog(config.audit.enabled, config.audit.file, this.logger);
+    this.audit = new AuditLog(
+      config.audit.enabled,
+      config.audit.file,
+      this.logger,
+      undefined,
+      config.audit.agentId,
+    );
     this.router = new ToolRouter();
     this.server = new Server(
       { name: "mavryn", version: "0.1.0" },
@@ -41,6 +47,16 @@ export class MavrynServer {
   }
 
   async start(): Promise<void> {
+    // Eagerly open the audit log so a broken DB surfaces now, not on first
+    // tool call. With audit.failClosed, this is also where compliance-mode
+    // refuses to serve from a non-functional audit.
+    this.audit.init();
+    if (this.config.audit.enabled && this.config.audit.failClosed && !this.audit.isHealthy()) {
+      throw new Error(
+        `Audit log is non-functional (path: ${this.config.audit.file}) and audit.failClosed is set. Refusing to start.`,
+      );
+    }
+
     await this.connectUpstreams();
     this.buildToolIndex();
 
@@ -150,33 +166,55 @@ export class MavrynServer {
         };
       }
 
-      if (this.config.policies.length > 0) {
-        const policy = evaluatePolicy(
-          nsTool.namespacedName,
-          nsTool.upstream,
-          serverConfig,
-          this.config.policies,
-        );
-        if (!policy.allowed) {
-          this.logger.warn("tool_denied", {
-            tool: nsTool.namespacedName,
-            reason: policy.reason,
-          });
-          this.audit.toolDenied({
-            upstream: nsTool.upstream,
-            tool: nsTool.originalName,
-            namespacedTool: nsTool.namespacedName,
-            args: args ?? {},
-            reason: policy.reason ?? "denied by policy",
-          });
-          return {
-            content: [{ type: "text" as const, text: `Denied: ${policy.reason}` }],
-            isError: true,
-          };
-        }
+      // Fail-closed audit gate: if the audit can't record, we refuse the
+      // call rather than silently leaving a hole in the trail. The user
+      // chose this with audit.failClosed; the alternative is the default
+      // open-and-warn behavior.
+      if (this.config.audit.enabled && this.config.audit.failClosed && !this.audit.isHealthy()) {
+        this.logger.error("tool_blocked_audit_unhealthy", {
+          tool: nsTool.namespacedName,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Denied: audit log is non-functional and audit.failClosed is set. Tool calls are blocked until audit is restored.",
+            },
+          ],
+          isError: true,
+        };
       }
 
-      return this.proxyToolCall(nsTool, args ?? {});
+      const policy =
+        this.config.policies.length > 0
+          ? evaluatePolicy(
+              nsTool.namespacedName,
+              nsTool.upstream,
+              serverConfig,
+              this.config.policies,
+            )
+          : { allowed: true, evaluated: [] as string[] };
+
+      if (!policy.allowed) {
+        this.logger.warn("tool_denied", {
+          tool: nsTool.namespacedName,
+          reason: policy.reason,
+        });
+        this.audit.toolDenied({
+          upstream: nsTool.upstream,
+          tool: nsTool.originalName,
+          namespacedTool: nsTool.namespacedName,
+          args: args ?? {},
+          reason: policy.reason ?? "denied by policy",
+          policiesEvaluated: policy.evaluated,
+        });
+        return {
+          content: [{ type: "text" as const, text: `Denied: ${policy.reason}` }],
+          isError: true,
+        };
+      }
+
+      return this.proxyToolCall(nsTool, args ?? {}, policy.evaluated);
     });
   }
 
@@ -306,6 +344,7 @@ export class MavrynServer {
   private async proxyToolCall(
     nsTool: NamespacedTool,
     args: Record<string, unknown>,
+    policiesEvaluated: string[] = [],
   ): Promise<CallToolResult> {
     const upstream = this.upstreams.get(nsTool.upstream);
     if (!upstream || !upstream.isConnected()) {
@@ -334,6 +373,7 @@ export class MavrynServer {
         args,
         success: true,
         latencyMs,
+        policiesEvaluated,
       });
 
       // Validate upstream response shape before passing through
@@ -356,6 +396,7 @@ export class MavrynServer {
         success: false,
         latencyMs,
         error: message,
+        policiesEvaluated,
       });
 
       return {

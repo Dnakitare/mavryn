@@ -146,6 +146,168 @@ describe("AuditLog adapter integration", () => {
     audit.close();
   });
 
+  it("propagates agentId from config to every audit row (Nadia / fleet-identity convention)", () => {
+    const audit = new AuditLog(true, dbPath, makeNoopLogger(), "agent-session", "security_reviewer");
+
+    audit.toolCall({
+      upstream: "github",
+      tool: "create_issue",
+      namespacedTool: "github__create_issue",
+      args: {},
+      success: true,
+      latencyMs: 1,
+    });
+    audit.toolDenied({
+      upstream: "github",
+      tool: "delete_repo",
+      namespacedTool: "github__delete_repo",
+      args: {},
+      reason: "blocked",
+    });
+    audit.close();
+
+    const store = new SqliteAuditStore(dbPath);
+    try {
+      const events = store.getAllEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0].agentId).toBe("security_reviewer");
+      expect(events[1].agentId).toBe("security_reviewer");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("chain remains intact across an audit close/reopen cycle (process restart simulation)", () => {
+    // First "process": write two events
+    const phase1 = new AuditLog(true, dbPath, makeNoopLogger(), "session-1");
+    phase1.toolCall({
+      upstream: "fs",
+      tool: "read_file",
+      namespacedTool: "fs__read_file",
+      args: { path: "/a" },
+      success: true,
+      latencyMs: 10,
+    });
+    phase1.toolCall({
+      upstream: "fs",
+      tool: "read_file",
+      namespacedTool: "fs__read_file",
+      args: { path: "/b" },
+      success: true,
+      latencyMs: 12,
+    });
+    phase1.close();
+
+    // Second "process": same DB file, new adapter instance, new sessionId
+    const phase2 = new AuditLog(true, dbPath, makeNoopLogger(), "session-2");
+    phase2.toolCall({
+      upstream: "fs",
+      tool: "read_file",
+      namespacedTool: "fs__read_file",
+      args: { path: "/c" },
+      success: true,
+      latencyMs: 15,
+    });
+    phase2.toolDenied({
+      upstream: "fs",
+      tool: "delete_file",
+      namespacedTool: "fs__delete_file",
+      args: { path: "/d" },
+      reason: "destructive blocked",
+    });
+    phase2.close();
+
+    // Verify the chain walks cleanly across the restart boundary
+    const store = new SqliteAuditStore(dbPath);
+    try {
+      const events = store.getAllEvents();
+      expect(events).toHaveLength(4);
+      expect(events[0].sessionId).toBe("session-1");
+      expect(events[1].sessionId).toBe("session-1");
+      expect(events[2].sessionId).toBe("session-2");
+      expect(events[3].sessionId).toBe("session-2");
+
+      // The phase-2 chain must reference the phase-1 tail's hash
+      expect(events[2].prevHash).toBe(events[1].eventHash);
+
+      const { valid } = verifyChain(events);
+      expect(valid).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("threads policiesEvaluated through to the audit row", () => {
+    const audit = new AuditLog(true, dbPath, makeNoopLogger(), "policies-session");
+
+    audit.toolCall({
+      upstream: "github",
+      tool: "create_issue",
+      namespacedTool: "github__create_issue",
+      args: { title: "bug" },
+      success: true,
+      latencyMs: 50,
+      policiesEvaluated: ["log-all-writes", "block-prod-pushes"],
+    });
+
+    audit.toolDenied({
+      upstream: "github",
+      tool: "delete_repo",
+      namespacedTool: "github__delete_repo",
+      args: { repo: "main" },
+      reason: "destructive ops blocked",
+      policiesEvaluated: ["log-all-writes", "block-destructive"],
+    });
+
+    audit.close();
+
+    const store = new SqliteAuditStore(dbPath);
+    try {
+      const events = store.getAllEvents();
+      expect(events[0].policiesEvaluated).toEqual(["log-all-writes", "block-prod-pushes"]);
+      expect(events[1].policiesEvaluated).toEqual(["log-all-writes", "block-destructive"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("isHealthy() reports true while audit is writing successfully", () => {
+    const audit = new AuditLog(true, dbPath, makeNoopLogger(), "health-session");
+    expect(audit.isHealthy()).toBe(true);
+
+    audit.toolCall({
+      upstream: "github",
+      tool: "create_issue",
+      namespacedTool: "github__create_issue",
+      args: {},
+      success: true,
+      latencyMs: 1,
+    });
+    expect(audit.isHealthy()).toBe(true);
+    audit.close();
+  });
+
+  it("isHealthy() flips to false after the store fails to open (init+failClosed compliance gate)", () => {
+    // Wedge the path: parent is a file, so mkdirSync inside ensureStore fails
+    const fileAsParent = join(tmpDir, "wedge-file");
+    require("fs").writeFileSync(fileAsParent, "");
+    const wedgedPath = join(fileAsParent, "audit.db");
+
+    const audit = new AuditLog(true, wedgedPath, makeNoopLogger());
+
+    // init() eagerly tries to open; failure flips writeable/healthy
+    audit.init();
+    expect(audit.isHealthy()).toBe(false);
+
+    audit.close();
+  });
+
+  it("disabled audit reports healthy regardless (no DB to be sick)", () => {
+    const audit = new AuditLog(false, dbPath, makeNoopLogger());
+    expect(audit.isHealthy()).toBe(true);
+    audit.close();
+  });
+
   it("disabled adapter writes nothing and never opens the DB", () => {
     const audit = new AuditLog(false, dbPath, makeNoopLogger());
 

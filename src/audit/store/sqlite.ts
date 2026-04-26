@@ -67,12 +67,12 @@ export class SqliteAuditStore implements AuditStore {
         );
         CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-        CREATE INDEX IF NOT EXISTS idx_events_tool ON events(tool_name);
         CREATE INDEX IF NOT EXISTS idx_events_decision ON events(policy_decision);
-        CREATE INDEX IF NOT EXISTS idx_events_hash ON events(event_hash);
-        CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id);
         CREATE INDEX IF NOT EXISTS idx_events_source ON events(source_tag);
         CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_id);
+        CREATE INDEX IF NOT EXISTS idx_events_tool_time ON events(tool_name, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_events_server_time ON events(server_name, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_events_user_time ON events(user_id, timestamp);
       `;
     }
 
@@ -315,6 +315,13 @@ export class SqliteAuditStore implements AuditStore {
       .prepare("SELECT * FROM events ORDER BY seq ASC LIMIT ? OFFSET ?")
       .all(limit, offset) as any[];
     return rows.map(this.rowToEvent);
+  }
+
+  *iterateAllEvents(): IterableIterator<AuditEvent> {
+    const stmt = this.db.prepare("SELECT * FROM events ORDER BY seq ASC");
+    for (const row of stmt.iterate() as IterableIterator<any>) {
+      yield this.rowToEvent(row);
+    }
   }
 
   getSessionIds(): string[] {

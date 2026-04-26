@@ -222,6 +222,78 @@ describe("SqliteAuditStore", () => {
     });
   });
 
+  describe("iterateAllEvents", () => {
+    it("yields events in seq order for streaming consumers", () => {
+      const e1 = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: "2026-04-25T00:00:01.000Z",
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "tool_1",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+      });
+      const e2 = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: "2026-04-25T00:00:02.000Z",
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "tool_2",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+      });
+      const e3 = store.appendAtomic({
+        id: crypto.randomUUID(),
+        timestamp: "2026-04-25T00:00:03.000Z",
+        sessionId: "sess-1",
+        serverName: "fs",
+        toolName: "tool_3",
+        toolArguments: {},
+        policyDecision: "allow",
+        policiesEvaluated: [],
+      });
+
+      const collected: AuditEvent[] = [];
+      for (const ev of store.iterateAllEvents()) {
+        collected.push(ev);
+      }
+
+      expect(collected.map((e) => e.toolName)).toEqual(["tool_1", "tool_2", "tool_3"]);
+      expect(collected[0].seq).toBe(e1.seq);
+      expect(collected[1].seq).toBe(e2.seq);
+      expect(collected[2].seq).toBe(e3.seq);
+    });
+
+    it("yields nothing on an empty store", () => {
+      const collected: AuditEvent[] = [];
+      for (const ev of store.iterateAllEvents()) {
+        collected.push(ev);
+      }
+      expect(collected).toEqual([]);
+    });
+
+    it("verifyChain works against the streaming iterator output", () => {
+      for (let i = 1; i <= 5; i++) {
+        store.appendAtomic({
+          id: crypto.randomUUID(),
+          timestamp: `2026-04-25T00:00:0${i}.000Z`,
+          sessionId: "sess-1",
+          serverName: "fs",
+          toolName: `tool_${i}`,
+          toolArguments: {},
+          policyDecision: "allow",
+          policiesEvaluated: [],
+        });
+      }
+
+      const all = [...store.iterateAllEvents()];
+      expect(all).toHaveLength(5);
+      expect(verifyChain(all).valid).toBe(true);
+    });
+  });
+
   describe("appendAtomic", () => {
     it("returns event with computed prevHash and eventHash", () => {
       const event = store.appendAtomic({

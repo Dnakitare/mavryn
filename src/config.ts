@@ -39,6 +39,7 @@ const UpstreamServerSchema = z.object({
 });
 
 const PolicyRuleSchema = z.object({
+  name: z.string().optional().describe("Human-readable rule name; recorded on every audit row this rule was evaluated against"),
   effect: z.enum(["allow", "deny"]),
   tools: z.array(z.string()).describe("Glob patterns matching namespaced tool names, e.g. 'github__*' or '*__delete_*'"),
   tags: z.array(z.string()).optional().describe("Only apply to servers with these tags"),
@@ -71,6 +72,8 @@ const MavrynConfigSchema = z.object({
   audit: z.object({
     enabled: z.boolean().default(false),
     file: z.string().default(".mavryn/audit.db"),
+    failClosed: z.boolean().default(false).describe("If true, deny tool calls when the audit log can't be written (compliance mode). If false (default), continue serving with audit silently disabled — surface in logs only."),
+    agentId: z.string().optional().describe("Identifier recorded as agent_id on every audit row. Convention: a stable string that names this agent or its role (e.g. 'claude-code', 'security_reviewer', 'support-bot-v2'). Use sourceTag for fleet/deployment grouping; use agentId for the agent's identity itself."),
   }).default({}),
   log: z.object({
     level: z.enum(["debug", "info", "warn", "error"]).default("info"),

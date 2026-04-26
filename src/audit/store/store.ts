@@ -48,6 +48,8 @@ export interface AuditStore {
   getLatestHash(): string | null;
   getEventCount(): number;
   getAllEvents(limit?: number, offset?: number): AuditEvent[];
+  /** Lazy seq-ordered iterator. Use for verify/export at any DB size — memory stays constant. */
+  iterateAllEvents(): IterableIterator<AuditEvent>;
   getSessionIds(): string[];
   close(): void;
 }

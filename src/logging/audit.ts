@@ -19,13 +19,21 @@ export class AuditLog {
   private writeable = true;
   private initialized = false;
   private sessionId: string;
+  private agentId: string | undefined;
   private logger: Logger;
 
-  constructor(enabled: boolean, dbPath: string, logger: Logger, sessionId?: string) {
+  constructor(
+    enabled: boolean,
+    dbPath: string,
+    logger: Logger,
+    sessionId?: string,
+    agentId?: string,
+  ) {
     this.enabled = enabled;
     this.dbPath = dbPath;
     this.logger = logger;
     this.sessionId = sessionId ?? crypto.randomUUID();
+    this.agentId = agentId;
   }
 
   private ensureStore(): SqliteAuditStore | null {
@@ -48,12 +56,32 @@ export class AuditLog {
     }
   }
 
+  /**
+   * Eagerly open the store. Called at server startup so a broken audit log
+   * is surfaced immediately rather than on the first tool call. Combined
+   * with audit.failClosed, this lets the server refuse to start (or start
+   * but deny tool calls) if the audit is non-functional.
+   */
+  init(): void {
+    if (!this.enabled) return;
+    this.ensureStore();
+  }
+
+  /**
+   * True iff audit is disabled OR audit is enabled and writes are succeeding.
+   * Used by MavrynServer to gate tool calls when audit.failClosed is on.
+   */
+  isHealthy(): boolean {
+    return !this.enabled || this.writeable;
+  }
+
   private writeAppend(params: {
     serverName: string;
     toolName: string;
     toolArguments: Record<string, unknown>;
     policyDecision: "allow" | "deny";
     policyReason?: string;
+    policiesEvaluated?: string[];
     resultStatus?: "success" | "error" | "blocked";
     resultSummary?: string;
     resultLatencyMs?: number;
@@ -66,12 +94,13 @@ export class AuditLog {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         sessionId: this.sessionId,
+        agentId: this.agentId,
         serverName: params.serverName,
         toolName: params.toolName,
         toolArguments: redactValue(params.toolArguments) as Record<string, unknown>,
         policyDecision: params.policyDecision,
         policyReason: params.policyReason,
-        policiesEvaluated: [],
+        policiesEvaluated: params.policiesEvaluated ?? [],
         resultStatus: params.resultStatus,
         resultSummary: params.resultSummary ? redactString(params.resultSummary) : undefined,
         resultLatencyMs: params.resultLatencyMs,
@@ -95,12 +124,14 @@ export class AuditLog {
     success: boolean;
     latencyMs: number;
     error?: string;
+    policiesEvaluated?: string[];
   }): void {
     this.writeAppend({
       serverName: data.upstream,
       toolName: data.tool,
       toolArguments: data.args,
       policyDecision: "allow",
+      policiesEvaluated: data.policiesEvaluated,
       resultStatus: data.success ? "success" : "error",
       resultSummary: data.error,
       resultLatencyMs: data.latencyMs,
@@ -113,6 +144,7 @@ export class AuditLog {
     namespacedTool: string;
     args: Record<string, unknown>;
     reason: string;
+    policiesEvaluated?: string[];
   }): void {
     this.writeAppend({
       serverName: data.upstream,
@@ -120,6 +152,7 @@ export class AuditLog {
       toolArguments: data.args,
       policyDecision: "deny",
       policyReason: data.reason,
+      policiesEvaluated: data.policiesEvaluated,
       resultStatus: "blocked",
     });
   }

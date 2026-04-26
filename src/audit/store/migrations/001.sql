@@ -28,8 +28,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-CREATE INDEX IF NOT EXISTS idx_events_tool ON events(tool_name);
 CREATE INDEX IF NOT EXISTS idx_events_decision ON events(policy_decision);
-CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id);
 CREATE INDEX IF NOT EXISTS idx_events_source ON events(source_tag);
 CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_id);
+
+-- Composite indexes for common filter+sort queries. Leading column also
+-- serves single-column lookups, so we don't need a separate single-col
+-- index for tool_name, server_name, or user_id.
+CREATE INDEX IF NOT EXISTS idx_events_tool_time ON events(tool_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_server_time ON events(server_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_user_time ON events(user_id, timestamp);

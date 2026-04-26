@@ -91,11 +91,20 @@ export function passesFilters(
   return true;
 }
 
+function ruleIdentifier(rule: PolicyRule, index: number): string {
+  return rule.name ?? `[${index}]:${rule.effect}:${rule.tools[0] ?? "*"}`;
+}
+
 /**
- * Evaluate policy rules for a tool call. Returns { allowed, reason }.
+ * Evaluate policy rules for a tool call. Returns { allowed, reason, evaluated }.
  *
  * Rules are evaluated in order; first match wins.
  * If no rules match, the call is ALLOWED (default-allow).
+ *
+ * `evaluated` lists the identifiers of every rule whose server/tag preconditions
+ * matched this call — i.e., every rule the engine actually compared tool patterns
+ * against, including the deciding rule. Rules excluded by server or tag scope are
+ * not listed. This is what gets recorded in the `policies_evaluated` audit column.
  *
  * Tool patterns match against the NAMESPACED name (e.g., 'github__create_issue').
  */
@@ -104,8 +113,12 @@ export function evaluatePolicy(
   serverName: string,
   serverConfig: UpstreamServerConfig,
   policies: PolicyRule[],
-): { allowed: boolean; reason?: string } {
-  for (const rule of policies) {
+): { allowed: boolean; reason?: string; evaluated: string[] } {
+  const evaluated: string[] = [];
+
+  for (let i = 0; i < policies.length; i++) {
+    const rule = policies[i];
+
     if (rule.servers && rule.servers.length > 0) {
       if (!rule.servers.includes(serverName)) continue;
     }
@@ -113,13 +126,23 @@ export function evaluatePolicy(
       if (!rule.tags.some((t) => serverConfig.tags.includes(t))) continue;
     }
 
+    evaluated.push(ruleIdentifier(rule, i));
+
     if (!matchesAnyGlob(rule.tools, toolName)) continue;
 
     if (rule.effect === "deny") {
-      return { allowed: false, reason: `Denied by policy: ${rule.tools.join(", ")}` };
+      return {
+        allowed: false,
+        reason: `Denied by policy: ${rule.tools.join(", ")}`,
+        evaluated,
+      };
     }
-    return { allowed: true, reason: `Allowed by policy: ${rule.tools.join(", ")}` };
+    return {
+      allowed: true,
+      reason: `Allowed by policy: ${rule.tools.join(", ")}`,
+      evaluated,
+    };
   }
 
-  return { allowed: true };
+  return { allowed: true, evaluated };
 }
