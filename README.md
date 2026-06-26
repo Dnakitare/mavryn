@@ -4,6 +4,8 @@ The MCP control plane — one server to route them all.
 
 Mavryn is a single MCP server that proxies multiple upstream MCP servers. Instead of configuring 15 servers in your AI tool, you configure one: Mavryn. It handles discovery, namespacing, routing, policy enforcement, and observability.
 
+**Mavryn and Imara.** Mavryn is the gateway: it puts many MCP servers behind a single endpoint, with namespacing, tool search, and routing. [Imara](https://github.com/Dnakitare/imara) is the governance layer that sits in front of any one server and decides, per tool call, whether it is allowed, denied, rate-limited, or escalated, then records the decision to a hash-chained audit log. Use Mavryn to consolidate, Imara to govern. They compose.
+
 ## Why
 
 - **Tool sprawl**: 15 MCP servers = 200+ tools dumped into every prompt, wasting tokens and confusing models
